@@ -20,6 +20,7 @@ from .iterative_projected_gradient import FastFeatureAttack
 from .iterative_projected_gradient import L2BasicIterativeAttack
 from .iterative_projected_gradient import LinfBasicIterativeAttack
 from .iterative_projected_gradient import PGDAttack
+from .iterative_projected_gradient import PGDAttackRussianRoulette
 from .iterative_projected_gradient import LinfPGDAttack
 from .iterative_projected_gradient import L2PGDAttack
 from .iterative_projected_gradient import L1PGDAttack

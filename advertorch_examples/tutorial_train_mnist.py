@@ -15,6 +15,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from torch.utils.tensorboard import SummaryWriter
+
+import numpy as np
+
 from advertorch.context import ctx_noparamgrad_and_eval
 from advertorch.test_utils import LeNet5
 from advertorch_examples.utils import get_mnist_train_loader
@@ -25,7 +29,7 @@ from advertorch_examples.utils import TRAINED_MODEL_PATH
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train MNIST')
     parser.add_argument('--seed', default=0, type=int)
-    parser.add_argument('--mode', default="cln", help="cln | adv")
+    parser.add_argument('--mode', default="cln", help="cln | adv | add_rr")
     parser.add_argument('--train_batch_size', default=50, type=int)
     parser.add_argument('--test_batch_size', default=1000, type=int)
     parser.add_argument('--log_interval', default=200, type=int)
@@ -40,8 +44,15 @@ if __name__ == '__main__':
         model_filename = "mnist_lenet5_clntrained.pt"
     elif args.mode == "adv":
         flag_advtrain = True
-        nb_epoch = 90
+        russian_roulette = False
+        nb_epoch = 10
         model_filename = "mnist_lenet5_advtrained.pt"
+    elif args.mode == "adv_rr":
+        flag_advtrain = True
+        russian_roulette = True
+        nb_epoch = 10
+        model_filename = "mnist_lenet5_adv_rrtrained.pt"
+        print("We are training the model using adversarial RR training.")
     else:
         raise
 
@@ -54,12 +65,21 @@ if __name__ == '__main__':
     model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
+    writer = SummaryWriter()
+
     if flag_advtrain:
-        from advertorch.attacks import LinfPGDAttack
-        adversary = LinfPGDAttack(
-            model, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.3,
-            nb_iter=40, eps_iter=0.01, rand_init=True, clip_min=0.0,
-            clip_max=1.0, targeted=False)
+        from advertorch.attacks import LinfPGDAttack, PGDAttackRussianRoulette
+        if not russian_roulette:
+            adversary = LinfPGDAttack(
+                model, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.3,
+                nb_iter=40, eps_iter=0.01, rand_init=True, clip_min=0.0,
+                clip_max=1.0, targeted=False)
+        else:
+            adversary = PGDAttackRussianRoulette(
+                model, ord=np.inf, loss_fn=nn.CrossEntropyLoss(reduction="sum"), eps=0.3,
+                stop_prob=0.025, eps_iter=0.01, rand_init=True, clip_min=0.0,
+                clip_max=1.0, targeted=False)
+
 
     for epoch in range(nb_epoch):
         model.train()
@@ -83,7 +103,7 @@ if __name__ == '__main__':
                     epoch, batch_idx *
                     len(data), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss.item()))
-
+                writer.add_scalar("Loss/train", loss.item(), epoch * len(train_loader) + batch_idx)
         model.eval()
         test_clnloss = 0
         clncorrect = 0
@@ -115,13 +135,20 @@ if __name__ == '__main__':
               ' cln acc: {}/{} ({:.0f}%)\n'.format(
                   test_clnloss, clncorrect, len(test_loader.dataset),
                   100. * clncorrect / len(test_loader.dataset)))
+        writer.add_scalar("Loss/test", test_clnloss, epoch)
+        writer.add_scalar("Acc/test", 100. * clncorrect / len(test_loader.dataset), epoch)
+
         if flag_advtrain:
             test_advloss /= len(test_loader.dataset)
             print('Test set: avg adv loss: {:.4f},'
                   ' adv acc: {}/{} ({:.0f}%)\n'.format(
                       test_advloss, advcorrect, len(test_loader.dataset),
                       100. * advcorrect / len(test_loader.dataset)))
-
+        writer.add_scalar("AdvLoss/test", test_advloss, epoch)
+        writer.add_scalar("AdvAcc/test", advcorrect / len(test_loader.dataset), epoch)
+    
+    
+    writer.flush()
     torch.save(
         model.state_dict(),
         os.path.join(TRAINED_MODEL_PATH, model_filename))
