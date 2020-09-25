@@ -19,27 +19,26 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
-from robustness import cifar_models
+from robustness.datasets import CIFAR
+from robustness.datasets import cifar_models
 
 from advertorch.context import ctx_noparamgrad_and_eval
-from advertorch.test_utils import LeNet5
-from advertorch_examples.utils import get_mnist_train_loader
-from advertorch_examples.utils import get_mnist_test_loader
 from advertorch_examples.utils import TRAINED_MODEL_PATH
 
 
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train MNIST')
+    parser = argparse.ArgumentParser(description='Train CIFAR')
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--mode', default="cln", help="cln | adv | add_rr")
     parser.add_argument('--train_batch_size', default=128, type=int)
     parser.add_argument('--test_batch_size', default=1000, type=int)
     parser.add_argument('--log_interval', default=100, type=int)
-    parser.add_argument('--epochs', default=10, type=int)
-    parser.add_argument('--model', default='lenet5', type=str, help='resnet50 | resnet18 | vgg13 | lenet5')
+    parser.add_argument('--epochs', default=100, type=int)
+    parser.add_argument('--model', default='resnet18', type=str, help='resnet50 | resnet18 | vgg13')
     parser.add_argument('--device', default=0, type=int)
-    parser.add_argument('--stop_prob', default=1. / 40, type=float, help='The probability of stopping the Russian roulette estimator.')
-    parser.add_argument('--inner_steps', default=40, type=int, help="The number of steps for the inner PGD.")
+    parser.add_argument('--stop_prob', default=1. / 7, type=float, help='The probability of stopping the Russian roulette estimator.')
+    parser.add_argument('--inner_steps', default=7, type=int, help="The number of steps for the inner PGD.")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -48,29 +47,26 @@ if __name__ == '__main__':
     print("Running on: ", torch.cuda.get_device_name(args.device))
     if args.mode == "cln":
         flag_advtrain = False
-        model_filename = f"mnist_{args.model}_clntrained.pt"
-        log_path = f"runs/mnist/{args.model}/clntrained/"
+        model_filename = f"cifar10_{args.model}_clntrained.pt"
+        log_path = f"runs/cifar10/{args.model}/clntrained/"
     elif args.mode == "adv":
         flag_advtrain = True
         russian_roulette = False
-        model_filename = f"mnist_{args.model}_advtrained.pt"
-        log_path = f"runs/mnist/{args.model}/advtrained/"
+        model_filename = f"cifar10_{args.model}_advtrained.pt"
+        log_path = f"runs/cifar10/{args.model}/advtrained/"
     elif args.mode == "adv_rr":
         flag_advtrain = True
         russian_roulette = True
-        model_filename = f"mnist_{args.model}_adv_rrtrained.pt"
-        log_path = f"runs/mnist/{args.model}/advRRtrained/"
+        model_filename = f"cifar10_{args.model}_adv_rrtrained.pt"
+        log_path = f"runs/cifar10/{args.model}/advRRtrained/"
     else:
         raise
 
-    train_loader = get_mnist_train_loader(
-        batch_size=args.train_batch_size, shuffle=True)
-    test_loader = get_mnist_test_loader(
-        batch_size=args.test_batch_size, shuffle=False)
 
-    if args.model == "lenet5":
-        model = LeNet5()
-    elif args.model == "resnet50":
+    dataset = CIFAR()
+    train_loader, test_loader = dataset.make_loaders(batch_size=128, workers=20)
+
+    if args.model == "resnet50":
         model = cifar_models.ResNet50()
     elif args.model == "resnet18":
         model = cifar_models.ResNet18()
@@ -164,7 +160,7 @@ if __name__ == '__main__':
                     100. * advcorrect / len(test_loader.dataset)))
         writer.add_scalar("AdvLoss/test", test_advloss, epoch)
         writer.add_scalar("AdvAcc/test", 100. * advcorrect / len(test_loader.dataset), epoch)
-    
+
     writer.flush()
     torch.save(
         model.state_dict(),
